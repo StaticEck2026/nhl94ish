@@ -111,74 +111,64 @@ body {
 
 		<script>
 // --- Preload WASM chunks before engine starts ---
-const WASM_CHUNKS = ['index.wasm.chunk0', 'index.wasm.chunk1'];
-const WASM_TOTAL = 37700666;
+var WASM_CHUNKS = ['index.wasm.chunk0', 'index.wasm.chunk1'];
+var WASM_TOTAL = 37700666;
+
+var statusOverlay = document.getElementById('status');
+var statusProgress = document.getElementById('status-progress');
+var statusNotice = document.getElementById('status-notice');
+
+function setStatusVisible() {
+	statusOverlay.style.visibility = 'visible';
+	statusProgress.style.display = 'block';
+	statusNotice.style.display = 'block';
+	statusNotice.textContent = 'Loading game data...';
+}
+
+setStatusVisible();
 
 function loadWasmChunks() {
-	let loaded = 0;
-	return Promise.all(WASM_CHUNKS.map((chunk, i) => {
-		return fetch(chunk).then(r => {
-			if (!r.ok) throw new Error('Failed to load ' + chunk);
+	return Promise.all(WASM_CHUNKS.map(function(chunk) {
+		return fetch(chunk).then(function(r) {
+			if (!r.ok) throw new Error('Failed to load ' + chunk + ': ' + r.status);
 			return r.arrayBuffer();
-		}).then(buf => {
-			loaded += buf.byteLength;
-			const progress = document.getElementById('status-progress');
-			if (progress) {
-				progress.value = loaded;
-				progress.max = WASM_TOTAL;
-			}
-			return buf;
 		});
-	})).then(buffers => {
-		const combined = new Uint8Array(WASM_TOTAL);
-		let offset = 0;
-		for (const buf of buffers) {
-			combined.set(new Uint8Array(buf), offset);
-			offset += buf.byteLength;
+	})).then(function(buffers) {
+		var combined = new Uint8Array(WASM_TOTAL);
+		var offset = 0;
+		for (var i = 0; i < buffers.length; i++) {
+			combined.set(new Uint8Array(buffers[i]), offset);
+			offset += buffers[i].byteLength;
 		}
-		const blob = new Blob([combined], { type: 'application/wasm' });
+		var blob = new Blob([combined], { type: 'application/wasm' });
 		globalThis._wasmBlobUrl = URL.createObjectURL(blob);
-		console.log('WASM chunks loaded and reassembled: ' + WASM_TOTAL + ' bytes');
 	});
 }
 
-// Show loading status
-const statusOverlay = document.getElementById('status');
-const statusProgress = document.getElementById('status-progress');
-const statusNotice = document.getElementById('status-notice');
-statusOverlay.style.visibility = 'visible';
-statusProgress.style.display = 'block';
-statusNotice.style.display = 'none';
-statusNotice.style.display = 'block';
-statusNotice.textContent = 'Loading...';
-
-// Load chunks, then load the engine
-loadWasmChunks().then(() => {
-	statusNotice.style.display = 'none';
-	// Load the engine script
-	const script = document.createElement('script');
+loadWasmChunks().then(function() {
+	// Load engine script after chunks are ready
+	var script = document.createElement('script');
 	script.src = 'index.js';
-	script.onload = function() {
-		startEngine();
+	script.onload = function() { startEngine(); };
+	script.onerror = function() {
+		statusNotice.textContent = 'Failed to load engine script.';
 	};
 	document.body.appendChild(script);
-}).catch(err => {
+}).catch(function(err) {
 	console.error('WASM loading failed:', err);
-	statusNotice.textContent = 'Failed to load game: ' + err.message;
+	statusNotice.textContent = 'Failed to load: ' + err.message;
 });
 
 function startEngine() {
-	const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":1337456},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
-	const GODOT_THREADS_ENABLED = false;
-	const engine = new Engine(GODOT_CONFIG);
+	var GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":2951776},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+	var GODOT_THREADS_ENABLED = false;
+	var engine = new Engine(GODOT_CONFIG);
 
-	let initializing = true;
-	let statusMode = '';
+	var initializing = true;
+	var statusMode = '';
 
 	function setStatusMode(mode) {
-		if (statusMode === mode || !initializing) {
-			return;
-		}
+		if (statusMode === mode || !initializing) return;
 		if (mode === 'hidden') {
 			statusOverlay.remove();
 			initializing = false;
@@ -191,11 +181,8 @@ function startEngine() {
 	}
 
 	function setStatusNotice(text) {
-		while (statusNotice.lastChild) {
-			statusNotice.removeChild(statusNotice.lastChild);
-		}
-		const lines = text.split('\n');
-		lines.forEach((line) => {
+		while (statusNotice.lastChild) statusNotice.removeChild(statusNotice.lastChild);
+		text.split('\n').forEach(function(line) {
 			statusNotice.appendChild(document.createTextNode(line));
 			statusNotice.appendChild(document.createElement('br'));
 		});
@@ -203,23 +190,17 @@ function startEngine() {
 
 	function displayFailureNotice(err) {
 		console.error(err);
-		if (err instanceof Error) {
-			setStatusNotice(err.message);
-		} else if (typeof err === 'string') {
-			setStatusNotice(err);
-		} else {
-			setStatusNotice('An unknown error occurred.');
-		}
+		if (err instanceof Error) setStatusNotice(err.message);
+		else if (typeof err === 'string') setStatusNotice(err);
+		else setStatusNotice('An unknown error occurred.');
 		setStatusMode('notice');
 		initializing = false;
 	}
 
-	const missing = Engine.getMissingFeatures({
-		threads: GODOT_THREADS_ENABLED,
-	});
+	var missing = Engine.getMissingFeatures({ threads: GODOT_THREADS_ENABLED });
 
 	if (missing.length !== 0) {
-		const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
+		var missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
 		displayFailureNotice(missingMsg + missing.join('\n'));
 	} else {
 		setStatusMode('progress');
@@ -233,7 +214,7 @@ function startEngine() {
 					statusProgress.removeAttribute('max');
 				}
 			},
-		}).then(() => {
+		}).then(function() {
 			setStatusMode('hidden');
 		}, displayFailureNotice);
 	}
