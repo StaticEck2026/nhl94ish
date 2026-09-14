@@ -110,41 +110,67 @@ body {
 		</div>
 
 		<script>
-// --- WASM chunk loader: intercepts fetch for index.wasm and reassembles chunks ---
+// --- Preload WASM chunks before engine starts ---
 const WASM_CHUNKS = ['index.wasm.chunk0', 'index.wasm.chunk1'];
-const _origFetch = window.fetch;
-window.fetch = function(input, init) {
-	const url = (typeof input === 'string') ? input : (input instanceof Request ? input.url : String(input));
-	if (url.includes('index.wasm') && !url.includes('chunk')) {
-		// Fetch all chunks and concatenate
-		return Promise.all(WASM_CHUNKS.map(c => _origFetch(c)))
-			.then(responses => Promise.all(responses.map(r => r.arrayBuffer())))
-			.then(buffers => {
-				const total = buffers.reduce((sum, b) => sum + b.byteLength, 0);
-				const combined = new Uint8Array(total);
-				let offset = 0;
-				for (const buf of buffers) {
-					combined.set(new Uint8Array(buf), offset);
-					offset += buf.byteLength;
-				}
-				return new Response(combined, {
-					headers: { 'Content-Type': 'application/wasm' }
-				});
-			});
-	}
-	return _origFetch(input, init);
-};
-</script>
-		<script src="index.js"></script>
-		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":1337456,"index.wasm.chunk0":19922944,"index.wasm.chunk1":17777722},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
-const GODOT_THREADS_ENABLED = false;
-const engine = new Engine(GODOT_CONFIG);
+const WASM_TOTAL = 37700666;
 
-(function () {
-	const statusOverlay = document.getElementById('status');
-	const statusProgress = document.getElementById('status-progress');
-	const statusNotice = document.getElementById('status-notice');
+function loadWasmChunks() {
+	let loaded = 0;
+	return Promise.all(WASM_CHUNKS.map((chunk, i) => {
+		return fetch(chunk).then(r => {
+			if (!r.ok) throw new Error('Failed to load ' + chunk);
+			return r.arrayBuffer();
+		}).then(buf => {
+			loaded += buf.byteLength;
+			const progress = document.getElementById('status-progress');
+			if (progress) {
+				progress.value = loaded;
+				progress.max = WASM_TOTAL;
+			}
+			return buf;
+		});
+	})).then(buffers => {
+		const combined = new Uint8Array(WASM_TOTAL);
+		let offset = 0;
+		for (const buf of buffers) {
+			combined.set(new Uint8Array(buf), offset);
+			offset += buf.byteLength;
+		}
+		const blob = new Blob([combined], { type: 'application/wasm' });
+		globalThis._wasmBlobUrl = URL.createObjectURL(blob);
+		console.log('WASM chunks loaded and reassembled: ' + WASM_TOTAL + ' bytes');
+	});
+}
+
+// Show loading status
+const statusOverlay = document.getElementById('status');
+const statusProgress = document.getElementById('status-progress');
+const statusNotice = document.getElementById('status-notice');
+statusOverlay.style.visibility = 'visible';
+statusProgress.style.display = 'block';
+statusNotice.style.display = 'none';
+statusNotice.style.display = 'block';
+statusNotice.textContent = 'Loading...';
+
+// Load chunks, then load the engine
+loadWasmChunks().then(() => {
+	statusNotice.style.display = 'none';
+	// Load the engine script
+	const script = document.createElement('script');
+	script.src = 'index.js';
+	script.onload = function() {
+		startEngine();
+	};
+	document.body.appendChild(script);
+}).catch(err => {
+	console.error('WASM loading failed:', err);
+	statusNotice.textContent = 'Failed to load game: ' + err.message;
+});
+
+function startEngine() {
+	const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":1337456},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+	const GODOT_THREADS_ENABLED = false;
+	const engine = new Engine(GODOT_CONFIG);
 
 	let initializing = true;
 	let statusMode = '';
@@ -193,36 +219,8 @@ const engine = new Engine(GODOT_CONFIG);
 	});
 
 	if (missing.length !== 0) {
-		if (GODOT_CONFIG['serviceWorker'] && GODOT_CONFIG['ensureCrossOriginIsolationHeaders'] && 'serviceWorker' in navigator) {
-			let serviceWorkerRegistrationPromise;
-			try {
-				serviceWorkerRegistrationPromise = navigator.serviceWorker.getRegistration();
-			} catch (err) {
-				serviceWorkerRegistrationPromise = Promise.reject(new Error('Service worker registration failed.'));
-			}
-			// There's a chance that installing the service worker would fix the issue
-			Promise.race([
-				serviceWorkerRegistrationPromise.then((registration) => {
-					if (registration != null) {
-						return Promise.reject(new Error('Service worker already exists.'));
-					}
-					return registration;
-				}).then(() => engine.installServiceWorker()),
-				// For some reason, `getRegistration()` can stall
-				new Promise((resolve) => {
-					setTimeout(() => resolve(), 2000);
-				}),
-			]).then(() => {
-				// Reload if there was no error.
-				window.location.reload();
-			}).catch((err) => {
-				console.error('Error while registering service worker:', err);
-			});
-		} else {
-			// Display the message as usual
-			const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
-			displayFailureNotice(missingMsg + missing.join('\n'));
-		}
+		const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
+		displayFailureNotice(missingMsg + missing.join('\n'));
 	} else {
 		setStatusMode('progress');
 		engine.startGame({
@@ -239,8 +237,7 @@ const engine = new Engine(GODOT_CONFIG);
 			setStatusMode('hidden');
 		}, displayFailureNotice);
 	}
-}());
+}
 		</script>
 	</body>
 </html>
-
