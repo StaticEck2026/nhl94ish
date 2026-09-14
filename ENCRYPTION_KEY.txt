@@ -1,0 +1,26 @@
+NHL Hockey - HTML5 Build
+========================
+
+Build date: 2026-09-14
+Godot version: 4.6.3-stable
+Export mode: Web (HTML5) release
+
+Encryption:
+- Script encryption: ENABLED (AES-256-CTR, script_export_mode=2)
+- Scripts compiled to encrypted .gdc bytecode
+- No GDScript source code in the .pck file
+- Encryption key: 501588b94c336c88506b772bf7546387781b74ede82f4643b44fe2575a4d3585
+
+File chunking:
+- index.wasm was 35.95MB, split into 2 chunks under 20MB:
+  - index.wasm.chunk0 (19.00MB)
+  - index.wasm.chunk1 (16.95MB)
+- index.html contains a fetch interceptor that reassembles chunks at load time
+
+To serve:
+  Any web server will work, e.g.:
+  cd html5_build && python3 -m http.server 8080
+  Then open http://localhost:8080/index.html
+
+Note: Cross-Origin Isolation headers are required for SharedArrayBuffer.
+The Godot HTML shell handles this via a service worker if needed.
